@@ -1,1 +1,26 @@
-MAX
+{
+  "id": "/",
+  "name": "MAX Web",
+  "short_name": "MAX Web",
+  "description": "Прогрессивное веб-приложение мессенджера MAX",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "orientation": "any",
+  "scope": "/",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "/s/web-app-manifest-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/s/web-app-manifest-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+import"../chunks/D45Wd9pD.js";import{t as e}from"../chunks/Dp3L1e8a.js";function
+ t(t){e(t,{size:36})}export{t as component};

@@ -1,5 +1,1 @@
-// Плейсхолдер: реальный service-worker.js недоступен.
-// Если нужен полноценный offline-режим — замени на настоящий файл.
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
-self.addEventListener('fetch', () => {});
+// Плейсхолдер: реальный service-worker.js недоступен.// Если нужен полноценный offline-режим — замени на настоящий файл.self.addEventListener('install', () => self.skipWaiting());self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));self.addEventListener('fetch', () => {});

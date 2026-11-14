@@ -21,8 +21,7 @@ ect.propertyIsEnumerable.call(e,i)&&!t.includes(i)&&(n[i]=e[i]);return n}var oe=
 ,me=1<<19,he=1<<20,ge=1<<25,_e=65536,ve=1<<21,ye=1<<22,be=1<<23,xe=Symbol(`$stat
 e`),Se=Symbol(`legacy props`),Ce=Symbol(``),we=Symbol(`proxy path`),Te=Symbol(`a
 ttributes`),Ee=Symbol(`class`),De=Symbol(`style`),Oe=Symbol(`text`),ke=Symbol(`f
-orm reset`),Ae=new class extends Error{name=`StaleReactionError`;message="The 
-reaction that called `getAbortSignal()` was re-run or destroyed"},je=!!globalThi
+orm reset`),Ae=new class extends Error{name=`StaleReactionError`;message="The reaction that called `getAbortSignal()` was re-run or destroyed"},je=!!globalThi
 s.document?.contentType&&globalThis.document.contentType.includes(`xml`);functio
 n Me(e){throw Error(`https://svelte.dev/e/experimental_async_required`)}function
  Ne(e){throw Error(`https://svelte.dev/e/lifecycle_outside_component`)}function 

@@ -1,7 +1,4 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./w3L-
-XTi5.js","./CGAj-1JJ.js","./B1INsJo1.js","./hAjDEfIC.js","./CnHNO-
-C3.js","./BWNLh2yq.js","./DAx5FZmr.js","./D6oohdKz.js","./CCZvg3YS.js","./CpZ_Wj
-y7.js"])))=>i.map(i=>d[i]); import{t as e}from"./DclECHGd.js";var t={},n=[`ru`,`
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./w3L-XTi5.js","./CGAj-1JJ.js","./B1INsJo1.js","./hAjDEfIC.js","./CnHNO-C3.js","./BWNLh2yq.js","./DAx5FZmr.js","./D6oohdKz.js","./CCZvg3YS.js","./CpZ_Wjy7.js"])))=>i.map(i=>d[i]); import{t as e}from"./DclECHGd.js";var t={},n=[`ru`,`
 en`,`es`,`pt`,`uz`,`fr`,`be`,`nn`],r=`PARAGLIDE_LOCALE`,i=[`custom-oneme-
 strategy`,`baseLocale`],a=[],o,s;function c(e){if(a.length===0)return;let 
 n=typeof e==`string`?e:e.href;if(o===n)return s;let r=new 

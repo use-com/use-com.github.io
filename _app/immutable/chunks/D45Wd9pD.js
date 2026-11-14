@@ -17,8 +17,7 @@ ect.propertyIsEnumerable.call(e,i)&&!t.includes(i)&&(n[i]=e[i]);return n}var ne=
 mbol(`component`),ve=Symbol(`legacy props`),ye=Symbol(``),be=Symbol(`proxy path`
 ),xe=Symbol(`attributes`),Se=Symbol(`class`),Ce=Symbol(`style`),we=Symbol(`text`
 ),Te=Symbol(`form reset`),Ee=new class extends 
-Error{name=`StaleReactionError`;message="The reaction that called 
-`getAbortSignal()` was re-run or destroyed"},De=!!globalThis.document?.contentTy
+Error{name=`StaleReactionError`;message="The reaction that called `getAbortSignal()` was re-run or destroyed"},De=!!globalThis.document?.contentTy
 pe&&globalThis.document.contentType.includes(`xml`);function 
 Oe(){console.warn(`https://svelte.dev/e/derived_inert`)}function 
 ke(e){console.warn(`https://svelte.dev/e/hydration_mismatch`)}function 

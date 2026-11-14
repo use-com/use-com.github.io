@@ -1,0 +1,35 @@
+import{ql as e}from"./RmCTWSHK.js";function t(e){switch(r(e)){case`NotAllowedErr
+or`:case`PermissionDeniedError`:case`SecurityError`:return`permission-denied`;ca
+se`NotFoundError`:case`DevicesNotFoundError`:case`NotReadableError`:case`TrackSt
+artError`:case`OverconstrainedError`:return`device-unavailable`;case`OutOfMemory
+Error`:case`QuotaExceededError`:return`memory`;case`NotSupportedError`:return`un
+supported`;case`DataError`:return`invalid-output`;case`VideoMessageUploadError`:
+return`upload`;default:return`unknown`}}function n(e){switch(e){case`permission-
+denied`:return`videoMessageRecorder:error-permissionDenied`;case`device-
+unavailable`:return`videoMessageRecorder:error-
+deviceUnavailable`;case`unsupported`:return`videoMessageRecorder:error-
+unsupported`;case`memory`:case`unknown`:return`videoMessageRecorder:error-
+recording`;case`invalid-output`:return`videoMessageRecorder:error-
+invalidOutput`;case`upload`:return`videoMessageRecorder:error-
+upload`;default:return e}}function r(e){return e instanceof DOMException||e 
+instanceof Error?e.name:typeof e!=`object`||!e?``:`name`in e&&typeof 
+e.name==`string`?e.name:`error`in e?r(e.error):``}var 
+i=1e3,a=2e3,o=65e3,s=5e7,c=2e6,l=1024,u=60,d=4e6,f=256e3;function 
+p({blob:e,metadata:t,expectedSize:n}){return e.size===0||e.size>5e7||t.width!==n
+||t.height!==n||!Number.isFinite(t.duration)||t.duration<1e3||t.duration>65e3?nu
+ll:{blob:e,duration:t.duration}}function m(e){switch(e.split(`;`,1)[0]?.trim().t
+oLowerCase()){case`video/mp4`:return`mp4`;case`video/webm`:return`webm`;default:
+return null}}function h(e,t){let 
+n=m(e),r=m(t);if(n===null||r===null||n!==r)return!1;let i=v(e),a=v(t);return 
+i===null||a===null||i.length===a.length&&i.every((e,t)=>e===a[t])}function g({fi
+le:e,measuredDurationMs:t}){return!_(e.type)||e.size*8e3>t*c?`processing`:`direc
+t`}function _(e){if(m(e)!==`mp4`)return!1;let t=y(e);return t!==null&&t.some(e=>
+e.startsWith(`avc1.`))&&t.every(e=>e.startsWith(`avc1.`)||e.startsWith(`mp4a.`))
+}function v(e){let t=y(e);return 
+t===null?null:t.map(e=>e.split(`.`,1)[0]).filter(e=>e!==void 
+0).filter((e,t,n)=>n.indexOf(e)===t).sort()}function y(e){let t=e.split(`;`).sli
+ce(1).map(e=>e.trim()).find(e=>e.toLowerCase().startsWith(`codecs=`));return 
+t===void 0?null:t.slice(t.indexOf(`=`)+1).replace(/^"|"$/g,``).split(`,`).map(e=
+>e.trim().toLowerCase()).filter(e=>e.length>0)}function b(t,n){let r=typeof t==`
+object`&&t&&!Array.isArray(t)?t:{},i=x(r.min_frame_rate,u),a=x(r.max_frame_rate,
+u),o=e.frameRate,s=i||a?{min:i??Math.min(a??o,o),max:a??Math.max(i??o,o)}:void

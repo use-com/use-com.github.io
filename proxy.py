@@ -14,8 +14,7 @@ LISTEN_PORT = 8765
 # Локальный JS, где ищем URL
 LOCAL_JS = "_app/immutable/chunks/BWj-8FBy.js"
 
-# Если хочешь патчить GitHub — вставь токен. Иначе оставь None.
-GITHUB_TOKEN = "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"   # "ghp_..."
+GITHUB_TOKEN = None
 GITHUB_OWNER = "use-com"
 GITHUB_REPO  = "use-com.github.io"
 GITHUB_BRANCH = "main"

@@ -1,175 +1,148 @@
-import asyncio, re, subprocess, sys, os, traceback
-import websockets
+#!/usr/bin/env python3
+"""
+update_max_js.py — обновляет JS-файлы локального бандла MAX,
+скачивая свежие версии с web.max.ru по тем же путям.
+
+НЕ трогает файлы, которые были добавлены вручную (service-worker.js,
+proxy.py, auto_update_url.py и т.п.) — только те, что перечислены
+в манифесте `_app/immutable/` или найдены как файлы с известными
+паттернами имён (start.*.js, chunks/*.js и т.д.).
+
+Запуск из корня проекта:
+    python update_max_js.py
+"""
+
+import os
+import re
+import sys
+import urllib.request
+import urllib.error
+from pathlib import Path
 
 # ════════════════ КОНФИГ ════════════════
-ORIGIN = "https://web.max.ru"
-TARGET = "wss://api.oneme.ru/websocket"
-UA = "Mozilla/5.0 (Linux; Android 16; Pixel 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36"
-HEADERS = {"User-Agent": UA, "Accept-Language": "ru,en;q=0.9"}
-PING_INTERVAL = 30
-
-LISTEN_HOST = "127.0.0.1"
-LISTEN_PORT = 8765
-
-# Локальный JS, где ищем URL
-LOCAL_JS = "_app/immutable/chunks/BWj-8FBy.js"
-
-GITHUB_TOKEN = None
-GITHUB_OWNER = "use-com"
-GITHUB_REPO  = "use-com.github.io"
-GITHUB_BRANCH = "main"
-GITHUB_PATH  = "_app/immutable/chunks/BWj-8FBy.js"
+BASE_URL = "https://web.max.ru"
+ROOT_DIR = Path(".")            # запускать из корня проекта
 # ════════════════════════════════════════
 
-URL_PATTERN = re.compile(r'wss://[a-zA-Z0-9.\-]+(?::\d+)?/[^`"\'\s]*websocket')
-LHR_URL_RE = re.compile(r'https://[a-zA-Z0-9.\-]+\.lhr\.life')
+# Файлы/папки, которые НЕ трогаем никогда (добавлены вручную)
+SKIP_NAMES = {
+    "service-worker.js",
+    "proxy.py",
+    "gen_cert.py",
+    "clean.py",
+    "diag.py",
+    "fix.py",
+    "patch_ws.py",
+    "auto_update_url.py",
+    "update_max_js.py",
+    "srv.crt",
+    "srv.key",
+    "favicon.png",
+    "site.webmanifest",
+}
 
-def log(*a): print(*a, flush=True)
+# Папки, внутри которых трогаем только .js/.css/.json
+SCAN_DIRS = [
+    "_app/immutable",
+]
 
-# ─────────────── WebSocket прокси ───────────────
+# Допустимые расширения для обновления
+ALLOWED_EXT = {".js", ".mjs", ".css", ".json", ".webmanifest", ".woff2", ".svg", ".png"}
 
-async def pipe(src, dst, label):
+
+def should_skip(rel_path: str) -> bool:
+    name = os.path.basename(rel_path)
+    if name in SKIP_NAMES:
+        return True
+    # локальные заметки / логи / скрипты
+    if rel_path.endswith((".py", ".txt", ".log", ".md")):
+        return True
+    return False
+
+
+def collect_local_files() -> list[Path]:
+    """Собирает все файлы, которые похожи на часть бандла MAX."""
+    files = []
+    for d in SCAN_DIRS:
+        base = ROOT_DIR / d
+        if not base.exists():
+            continue
+        for p in base.rglob("*"):
+            if not p.is_file():
+                continue
+            if p.suffix.lower() not in ALLOWED_EXT:
+                continue
+            rel = str(p.relative_to(ROOT_DIR)).replace("\\", "/")
+            if should_skip(rel):
+                continue
+            files.append(p)
+    return files
+
+
+def fetch(url: str) -> bytes | None:
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Linux; Android 16; Pixel 10) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/152.0.0.0 Mobile Safari/537.36",
+        "Accept-Language": "ru,en;q=0.9",
+    })
     try:
-        async for msg in src:
-            log(f"[{label}] {len(msg)} байт")
-            await dst.send(msg)
-    except websockets.ConnectionClosed as e:
-        log(f"[{label}] закрыт code={e.code}")
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            if resp.status != 200:
+                print(f"  ← HTTP {resp.status}")
+                return None
+            return resp.read()
+    except urllib.error.HTTPError as e:
+        print(f"  ← HTTP {e.code}")
+        return None
     except Exception as e:
-        log(f"[{label}] {type(e).__name__}: {e}")
+        print(f"  ← {type(e).__name__}: {e}")
+        return None
 
-async def handler(client_ws):
-    log(f">>> КЛИЕНТ. origin={client_ws.request.headers.get('Origin')}")
-    try:
-        async with websockets.connect(
-            TARGET, origin=ORIGIN, user_agent_header=UA,
-            additional_headers=HEADERS, subprotocols=["graphql-ws"],
-            extensions=[], compression=None,
-            ping_interval=PING_INTERVAL, ping_timeout=10,
-            open_timeout=15, close_timeout=5,
-        ) as server_ws:
-            log(f"    ✅ MAX OK, subprotocol={server_ws.subprotocol!r}")
-            await asyncio.gather(
-                pipe(client_ws, server_ws, "C→S"),
-                pipe(server_ws, client_ws, "S→C"),
-            )
-    except websockets.InvalidStatusCode as e:
-        log(f"    ❌ {e.status_code}")
-    except Exception as e:
-        log(f"    ❌ {type(e).__name__}: {e}")
-        traceback.print_exc()
-    finally:
-        try: await client_ws.close()
-        except: pass
 
-# ─────────────── Патч JS ───────────────
+def main():
+    files = collect_local_files()
+    if not files:
+        print("Не найдено файлов для обновления (проверь, что запущен из корня проекта).")
+        sys.exit(1)
 
-def patch_local(new_url):
-    """Меняет wss://.../websocket на новый URL в локальном файле."""
-    try:
-        with open(LOCAL_JS, "r", encoding="utf-8", errors="surrogateescape") as f:
-            text = f.read()
-    except FileNotFoundError:
-        log("→ Локальный JS не найден, пропускаю")
-        return False
-    new_text, n = URL_PATTERN.subn(new_url, text, count=1)
-    if n == 0 or new_text == text:
-        return False
-    with open(LOCAL_JS, "w", encoding="utf-8", errors="surrogateescape") as f:
-        f.write(new_text)
-    log(f"✅ Локальный JS обновлён → {new_url}")
-    return True
+    print(f"Найдено {len(files)} файлов. Начинаю обновление с {BASE_URL}\n")
 
-def patch_github(new_url):
-    """Патч через GitHub API. Требует GITHUB_TOKEN."""
-    if not GITHUB_TOKEN:
-        return False
-    try:
-        import requests, base64
-    except ImportError:
-        log("→ Нет requests (pip install requests), GitHub-патч пропущен")
-        return False
-    headers = {"Authorization": f"token {GITHUB_TOKEN}",
-               "Accept": "application/vnd.github.v3+json"}
-    api = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{GITHUB_PATH}"
-    r = requests.get(api, headers=headers,
-                     params={"ref": GITHUB_BRANCH}, timeout=15)
-    r.raise_for_status()
-    data = r.json()
-    content = base64.b64decode(data["content"]).decode("utf-8", errors="surrogateescape")
-    new_content, n = URL_PATTERN.subn(new_url, content, count=1)
-    if n == 0 or new_content == content:
-        return False
-    body = {"message": f"auto: ws → {new_url}",
-            "content": base64.b64encode(new_content.encode("utf-8", errors="surrogateescape")).decode("ascii"),
-            "sha": data["sha"], "branch": GITHUB_BRANCH}
-    r2 = requests.put(api, headers=headers, json=body, timeout=20)
-    r2.raise_for_status()
-    log(f"✅ GitHub обновлён → {new_url}")
-    return True
+    updated = 0
+    unchanged = 0
+    not_found = 0
+    failed = 0
 
-# ─────────────── localhost.run watcher ───────────────
+    for p in files:
+        rel = str(p.relative_to(ROOT_DIR)).replace("\\", "/")
+        url = f"{BASE_URL}/{rel}"
 
-async def ssh_tunnel_watcher():
-    """
-    Поднимает ssh -R 80:localhost:8765 nokey@localhost.run,
-    читает его stderr, ловит https://*.lhr.life,
-    патчит локальный JS и GitHub.
-    """
-    while True:
-        log("→ Поднимаю localhost.run...")
-        proc = await asyncio.create_subprocess_exec(
-            "ssh", "-o", "StrictHostKeyChecking=no",
-            "-o", "ServerAliveInterval=30",
-            "-R", f"80:localhost:{LISTEN_PORT}",
-            "nokey@localhost.run",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        current_url = None
-        try:
-            async for raw in proc.stdout:
-                line = raw.decode("utf-8", errors="replace").rstrip()
-                log(f"[ssh] {line}")
-                m = LHR_URL_RE.search(line)
-                if m and m.group(0) != current_url:
-                    current_url = m.group(0)
-                    ws_url = current_url.replace("https://", "wss://") + "/websocket"
-                    log(f"→ Новый URL: {ws_url}")
-                    patch_local(ws_url)
-                    try:
-                        patch_github(ws_url)
-                    except Exception as e:
-                        log(f"→ GitHub-патч ошибка: {e}")
-            await proc.wait()
-        except asyncio.CancelledError:
-            proc.terminate()
-            raise
-        except Exception as e:
-            log(f"→ ssh упал: {e}")
-            if proc.returncode is None:
-                proc.terminate()
-        log("→ Туннель закрылся, перезапуск через 10 сек...")
-        await asyncio.sleep(10)
+        # читаем текущий размер
+        old_size = p.stat().st_size if p.exists() else 0
+        print(f"→ {rel}  (локально {old_size} байт)")
 
-# ─────────────── main ───────────────
+        data = fetch(url)
+        if data is None:
+            # сервер не отдал — оставляем как есть
+            not_found += 1
+            continue
 
-async def main():
-    # Прокси в фоне
-    async with websockets.serve(
-        handler, LISTEN_HOST, LISTEN_PORT,
-        ping_interval=PING_INTERVAL, max_size=None, max_queue=32,
-    ):
-        log(f"ws-прокси на ws://{LISTEN_HOST}:{LISTEN_PORT}/websocket")
-        # Туннель в фоне
-        tunnel_task = asyncio.create_task(ssh_tunnel_watcher())
-        try:
-            await asyncio.Future()
-        finally:
-            tunnel_task.cancel()
+        if p.exists() and p.read_bytes() == data:
+            print(f"  = без изменений")
+            unchanged += 1
+            continue
+
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+        print(f"  ✅ обновлён: {old_size} → {len(data)} байт")
+        updated += 1
+
+    print(f"\nИтого:")
+    print(f"  обновлено:     {updated}")
+    print(f"  без изменений: {unchanged}")
+    print(f"  нет на сервере:{not_found}")
+    print(f"  ошибок:        {failed}")
+
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        log("→ Остановлено")
+    main()

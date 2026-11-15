@@ -1,11 +1,16 @@
 import asyncio
-import re
-import subprocess
-import sys
+import base64
 import os
+import re
 import traceback
+
 import websockets
 from aiohttp import web, ClientSession
+
+try:
+    import requests
+except ImportError:
+    requests = None
 
 # ════════════════ КОНФИГ ════════════════
 ORIGIN = "https://web.max.ru"
@@ -17,26 +22,25 @@ PING_INTERVAL = 30
 WS_PORT = 8765
 HTTP_PORT = 8766
 
-# Локальные JS, которые нужно патчить
 JS_DIR = "_app/immutable/chunks"
-JS_FILES = ["BWj-8FBy.js", "RmCTWSHK.js"]  # основные, где URL
+JS_FILES = ["BWj-8FBy.js", "RmCTWSHK.js"]
 
-# GitHub (опционально)
-GITHUB_TOKEN = None
+# ═══ ВСТАВЬ ТОКЕН ЗДЕСЬ ═══
+GITHUB_TOKEN = None          # "ghp_..." или None, если автопатч не нужен
 GITHUB_OWNER = "use-com"
-GITHUB_REPO = "use-com.github.io"
+GITHUB_REPO  = "use-com.github.io"
 GITHUB_BRANCH = "main"
 # ════════════════════════════════════════
 
 URL_PATTERNS = {
-    "ws": re.compile(r'wss://[a-zA-Z0-9.\-]+(?::\d+)?/[^`"\'\s]*websocket'),
+    "ws":   re.compile(r'wss://[a-zA-Z0-9.\-]+(?::\d+)?/[^`"\'\s]*/websocket'),
     "http": re.compile(r'https://(?:id\.vk\.ru|api\.oneme\.ru)[a-zA-Z0-9.\-/?=&%]*'),
-    "lhr": re.compile(r'https://[a-zA-Z0-9.\-]+\.lhr\.life'),
+    "lhr":  re.compile(r'https://[a-zA-Z0-9.\-]+\.lhr\.life'),
 }
 
 def log(*a): print(*a, flush=True)
 
-# ─────────────── WebSocket Прокси ───────────────
+# ═══════════════ WebSocket Прокси ═══════════════
 async def pipe(src, dst, label):
     try:
         async for msg in src:
@@ -56,7 +60,7 @@ async def ws_handler(client_ws):
             extensions=[], compression=None,
             ping_interval=PING_INTERVAL, ping_timeout=10,
         ) as server_ws:
-            log(f"    ✅ MAX OK")
+            log("    ✅ MAX OK")
             await asyncio.gather(
                 pipe(client_ws, server_ws, "C→S"),
                 pipe(server_ws, client_ws, "S→C"),
@@ -67,11 +71,13 @@ async def ws_handler(client_ws):
         try: await client_ws.close()
         except: pass
 
-# ─────────────── HTTP Прокси (для капчи) ───────────────
+# ═══════════════ HTTP Прокси (капча) ═══════════════
 async def http_handler(request):
-    target_url = request.path_qs.lstrip('/')
+    target_url = request.path_qs
+    if target_url.startswith('/'):
+        target_url = target_url[1:]
     if not target_url.startswith('http'):
-        return web.Response(status=400, text="Bad target")
+        return web.Response(status=400, text="Bad target: " + target_url)
 
     headers = dict(request.headers)
     headers.pop('Host', None)
@@ -84,7 +90,7 @@ async def http_handler(request):
         try:
             async with session.request(
                 request.method, target_url, headers=headers,
-                data=await request.read(), allow_redirects=False
+                data=await request.read(), allow_redirects=True
             ) as resp:
                 body = await resp.read()
                 resp_headers = dict(resp.headers)
@@ -97,9 +103,8 @@ async def http_handler(request):
             log(f"HTTP ERR: {e}")
             return web.Response(status=502, text=str(e))
 
-# ─────────────── Патчинг JS ───────────────
+# ═══════════════ Патч локальных JS ═══════════════
 def patch_local(ws_url, http_url):
-    """Патчит локальные JS-файлы."""
     if not ws_url: return
     for fname in JS_FILES:
         path = os.path.join(JS_DIR, fname)
@@ -109,7 +114,6 @@ def patch_local(ws_url, http_url):
                 text = f.read()
             new_text = URL_PATTERNS["ws"].sub(ws_url, text)
             if http_url:
-                # Патчим id.vk.ru и api.oneme.ru через HTTP-прокси
                 new_text = URL_PATTERNS["http"].sub(
                     lambda m: f"http://127.0.0.1:{HTTP_PORT}/{m.group(0)}", new_text
                 )
@@ -120,72 +124,120 @@ def patch_local(ws_url, http_url):
         except Exception as e:
             log(f"Ошибка локального патча {fname}: {e}")
 
-# ─────────────── Туннель localhost.run ───────────────
-async def ssh_tunnel_watcher(port, name):
-    """Запускает ssh-туннель для порта и возвращает URL."""
-    while True:
-        log(f"→ Поднимаю туннель для {name} (порт {port})...")
-        proc = await asyncio.create_subprocess_exec(
-            "ssh", "-o", "StrictHostKeyChecking=no",
-            "-o", "ServerAliveInterval=30",
-            "-R", f"80:localhost:{port}",
-            "nokey@localhost.run",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+# ═══════════════ Патч GitHub ═══════════════
+def patch_github(ws_url, http_url):
+    if not GITHUB_TOKEN or not requests:
+        log("ℹ️ Автопатч GitHub отключён (нет токена или requests)")
+        return
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    for fname in JS_FILES:
+        path = f"{JS_DIR}/{fname}"
+        api = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{path}"
         try:
-            async for raw in proc.stdout:
-                line = raw.decode("utf-8", errors="replace").rstrip()
-                m = URL_PATTERNS["lhr"].search(line)
-                if m:
-                    url = m.group(0)
-                    log(f"→ {name} URL: {url}")
-                    return url
-            await proc.wait()
-        except asyncio.CancelledError:
-            proc.terminate()
-            raise
-        except Exception:
-            pass
-        finally:
-            if proc.returncode is None:
+            r = requests.get(api, headers=headers, params={"ref": GITHUB_BRANCH}, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            sha = data["sha"]
+            content = base64.b64decode(data["content"]).decode("utf-8")
+        except Exception as e:
+            log(f"❌ GitHub GET {fname}: {e}")
+            continue
+
+        new_content = URL_PATTERNS["ws"].sub(ws_url, content)
+        if http_url:
+            new_content = URL_PATTERNS["http"].sub(
+                lambda m: f"http://127.0.0.1:{HTTP_PORT}/{m.group(0)}", new_content
+            )
+        if new_content == content:
+            log(f"ℹ️ {fname}: уже актуален на GitHub")
+            continue
+        try:
+            r = requests.put(
+                api, headers=headers,
+                json={
+                    "message": f"auto: patch {fname}",
+                    "content": base64.b64encode(new_content.encode("utf-8")).decode("ascii"),
+                    "sha": sha,
+                    "branch": GITHUB_BRANCH,
+                },
+                timeout=20,
+            )
+            r.raise_for_status()
+            log(f"✅ GitHub обновлён: {fname}")
+        except Exception as e:
+            log(f"❌ GitHub PUT {fname}: {e}")
+
+def patch_all(ws_url, http_url):
+    patch_local(ws_url, http_url)
+    patch_github(ws_url, http_url)
+
+# ═══════════════ localhost.run ═══════════════
+async def ssh_tunnel_watcher(port, name):
+    """Держит ssh-туннель живым, URL отдаёт через Queue."""
+    url_queue = asyncio.Queue()
+
+    async def runner():
+        while True:
+            log(f"→ Поднимаю туннель {name} (порт {port})...")
+            proc = await asyncio.create_subprocess_exec(
+                "ssh", "-o", "StrictHostKeyChecking=no",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ExitOnForwardFailure=yes",
+                "-R", f"80:localhost:{port}",
+                "nokey@localhost.run",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            got_url = False
+            try:
+                async for raw in proc.stdout:
+                    line = raw.decode("utf-8", errors="replace").rstrip()
+                    m = URL_PATTERNS["lhr"].search(line)
+                    if m and not got_url:
+                        url = m.group(0)
+                        log(f"→ {name} URL: {url}")
+                        await url_queue.put(url)
+                        got_url = True
+            except asyncio.CancelledError:
                 proc.terminate()
-        log(f"→ Туннель {name} закрылся, перезапуск...")
-        await asyncio.sleep(5)
+                raise
+            except Exception as e:
+                log(f"Туннель {name} ошибка: {e}")
+            finally:
+                if proc.returncode is None:
+                    proc.terminate()
+                    try: await asyncio.wait_for(proc.wait(), timeout=5)
+                    except: pass
+            await asyncio.sleep(5)
+
+    asyncio.create_task(runner())
+    return await url_queue.get()
 
 async def manage_tunnels():
-    """Запускает оба туннеля параллельно и патчит JS при получении URL."""
-    while True:
-        try:
-            # Запускаем оба туннеля параллельно
-            ws_url_task = asyncio.create_task(ssh_tunnel_watcher(WS_PORT, "WS"))
-            http_url_task = asyncio.create_task(ssh_tunnel_watcher(HTTP_PORT, "HTTP"))
+    try:
+        ws_url, http_url = await asyncio.gather(
+            ssh_tunnel_watcher(WS_PORT, "WS"),
+            ssh_tunnel_watcher(HTTP_PORT, "HTTP"),
+        )
+        ws_wss = ws_url.replace("https://", "wss://") + "/websocket"
+        patch_all(ws_wss, http_url)
+        log("✅ Туннели подняты, JS пропатчен (локально + GitHub).")
+        await asyncio.Future()
+    except Exception as e:
+        log(f"Ошибка туннелей: {e}")
+        traceback.print_exc()
 
-            # Ждем, пока оба выдадут URL
-            ws_url = await ws_url_task
-            http_url = await http_url_task
-
-            # Патчим локальные файлы
-            ws_wss = ws_url.replace("https://", "wss://") + "/websocket"
-            patch_local(ws_wss, http_url)
-
-            # Ждем завершения любого из туннелей (если упадет — перезапуск)
-            await asyncio.gather(ws_url_task, http_url_task)
-
-        except Exception as e:
-            log(f"Ошибка туннелей: {e}")
-            await asyncio.sleep(10)
-
-# ─────────────── Main ───────────────
+# ═══════════════ Main ═══════════════
 async def main():
-    # 1. WebSocket-сервер
     await websockets.serve(
         ws_handler, "127.0.0.1", WS_PORT,
         ping_interval=PING_INTERVAL, compression=None
     )
     log(f"ws-прокси на ws://127.0.0.1:{WS_PORT}/websocket")
 
-    # 2. HTTP-сервер
     app = web.Application()
     app.router.add_route('*', '/{path:.*}', http_handler)
     runner = web.AppRunner(app)
@@ -194,9 +246,7 @@ async def main():
     await site.start()
     log(f"http-прокси на http://127.0.0.1:{HTTP_PORT}/")
 
-    # 3. Туннели
     asyncio.create_task(manage_tunnels())
-
     await asyncio.Future()
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
-OLD = "wss://hair-drainage-decorative-screening.trycloudflare.com/websocket"
-NEW = "ws://scooter-resonance.tun.ply.gg"
+OLD = "wss://b8b4921bf40c07.app.lhr.life/websocket"
+NEW = "wss://scooter-resonance.tun.ply.gg/websocket"
 
 p = "_app/immutable/chunks/BWj-8FBy.js"
 with open(p, "r", encoding="utf-8", errors="surrogateescape") as f:
